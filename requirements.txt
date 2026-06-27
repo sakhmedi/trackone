@@ -5,5 +5,9 @@ pytesseract>=0.3.10
 pdf2image>=1.16.0
 Pillow>=10.0.0
 
+# dev/test — нужен только для запуска тестов (python -m pytest tests/).
+# Сам пайплайн от него не зависит.
+pytest>=7.0.0
+
 # (для Track 3, понадобится позже)
 # pyproj>=3.5.0
