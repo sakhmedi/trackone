@@ -1,0 +1,16 @@
+{
+  "documents": 2,
+  "needs_review": 2,
+  "report_ids": [
+    "25834"
+  ],
+  "total_valid_coordinates": 5,
+  "minerals": {
+    "кварц": 2,
+    "висмут": 1,
+    "золото": 1,
+    "медь": 1,
+    "серебро": 1,
+    "цинк": 1
+  }
+}

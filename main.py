@@ -104,7 +104,7 @@ def build_geojson(output_dir):
     """
     features = []
     for fn in sorted(os.listdir(output_dir)):
-        if not fn.endswith(".json") or fn.startswith("_"):
+        if not fn.endswith(".json") or fn.startswith("_") or fn == "summary.json":
             continue
         try:
             with open(os.path.join(output_dir, fn), encoding="utf-8") as fh:
@@ -127,6 +127,74 @@ def build_geojson(output_dir):
                 },
             })
     return {"type": "FeatureCollection", "features": features}
+
+
+def build_summary(output_dir):
+    """
+    Сводка по всему обработанному корпусу: сколько документов, сколько помечено на
+    ручную проверку, какие минералы встречаются (и в скольких документах), сколько
+    валидных координат собрано. Как и build_geojson, читает готовые JSON с диска —
+    поэтому отражает и ранее обработанные (пропущенные при resume) файлы.
+
+    Это «карта» спасённых данных по всему архиву: одним взглядом видно объём и
+    качество того, что удалось извлечь из пачки сканов.
+    """
+    docs = 0
+    needs_review = 0
+    report_ids = []
+    total_valid_coords = 0
+    mineral_doc_counts = {}
+    for fn in sorted(os.listdir(output_dir)):
+        if not fn.endswith(".json") or fn.startswith("_") or fn == "summary.json":
+            continue
+        try:
+            with open(os.path.join(output_dir, fn), encoding="utf-8") as fh:
+                data = json.load(fh)
+        except Exception:
+            continue
+        docs += 1
+        if data.get("ocr", {}).get("needs_review"):
+            needs_review += 1
+        if data.get("report_id"):
+            report_ids.append(data["report_id"])
+        total_valid_coords += sum(
+            1 for c in data.get("coordinates", []) if c.get("valid")
+        )
+        # минерал считаем один раз на документ (в скольких документах встречается)
+        for m in set(data.get("entities", {}).get("minerals", [])):
+            mineral_doc_counts[m] = mineral_doc_counts.get(m, 0) + 1
+
+    return {
+        "documents": docs,
+        "needs_review": needs_review,
+        "report_ids": sorted(set(report_ids)),
+        "total_valid_coordinates": total_valid_coords,
+        # сортируем по частоте (убывание), затем по имени
+        "minerals": dict(
+            sorted(mineral_doc_counts.items(), key=lambda kv: (-kv[1], kv[0]))
+        ),
+    }
+
+
+def to_summary_markdown(summary):
+    """Человекочитаемая сводка по корпусу в Markdown."""
+    out = [
+        "# Сводка по корпусу",
+        "",
+        f"- Документов обработано: **{summary['documents']}**",
+        f"- Требуют ручной проверки (needs_review): **{summary['needs_review']}**",
+        f"- Валидных координат всего: **{summary['total_valid_coordinates']}**",
+        f"- Номера отчётов: {', '.join(summary['report_ids']) or '—'}",
+        "",
+        "## Минералы по корпусу",
+    ]
+    if summary["minerals"]:
+        out += ["", "| Минерал | Встречается в документах |", "|---------|--------------------------|"]
+        out += [f"| {m} | {n} |" for m, n in summary["minerals"].items()]
+    else:
+        out.append("_не найдено_")
+    out.append("")
+    return "\n".join(out)
 
 
 def main():
@@ -208,8 +276,19 @@ def main():
     with open(geo_path, "w", encoding="utf-8") as fh:
         json.dump(geojson, fh, ensure_ascii=False, indent=2)
 
+    # сводка по всему корпусу (JSON + человекочитаемый Markdown)
+    summary = build_summary(args.output)
+    with open(os.path.join(args.output, "summary.json"), "w", encoding="utf-8") as fh:
+        json.dump(summary, fh, ensure_ascii=False, indent=2)
+    with open(os.path.join(args.output, "summary.md"), "w", encoding="utf-8") as fh:
+        fh.write(to_summary_markdown(summary))
+
     print("-" * 50)
     print(f"Сводный GeoJSON: {geo_path} (точек: {len(geojson['features'])})")
+    print(
+        f"Сводка по корпусу: {os.path.join(args.output, 'summary.json')} "
+        f"(документов: {summary['documents']}, на проверке: {summary['needs_review']})"
+    )
     print(
         f"Готово. Успешно: {ok}/{len(pdfs)}. "
         f"Пропущено (уже было): {skipped}. Ошибок: {len(error_log)}."
