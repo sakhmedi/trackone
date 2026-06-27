@@ -1,0 +1,85 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          74.35,
+          49.066667
+        ]
+      },
+      "properties": {
+        "id": "18",
+        "name": "Алайтыр заладный",
+        "report_id": "25834",
+        "source_file": "каталог_координат_25834.pdf"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          95.9,
+          49.0
+        ]
+      },
+      "properties": {
+        "id": "24",
+        "name": "Алайгыр восточный",
+        "report_id": "25834",
+        "source_file": "каталог_координат_25834.pdf"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          74.066667,
+          48.933333
+        ]
+      },
+      "properties": {
+        "id": "26",
+        "name": "Участок Актобе",
+        "report_id": "25834",
+        "source_file": "каталог_координат_25834.pdf"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          74.35,
+          48.516667
+        ]
+      },
+      "properties": {
+        "id": "28",
+        "name": "Узунагац",
+        "report_id": "25834",
+        "source_file": "каталог_координат_25834.pdf"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          71.766667,
+          47.833333
+        ]
+      },
+      "properties": {
+        "id": "0",
+        "name": "Участок Кварцевый",
+        "report_id": "25834",
+        "source_file": "каталог_координат_25834.pdf"
+      }
+    }
+  ]
+}
