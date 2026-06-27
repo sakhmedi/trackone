@@ -1,0 +1,88 @@
+{
+  "unique_sites": 5,
+  "total_mentions": 5,
+  "cross_document_sites": 0,
+  "name_conflicts": [],
+  "sites": [
+    {
+      "name": "Алайгыр восточный",
+      "lat_dms": "49°00'",
+      "lon_dms": "95°54'",
+      "lat_decimal": 49.0,
+      "lon_decimal": 95.9,
+      "occurrences": [
+        {
+          "report_id": "25834",
+          "source_file": "каталог_координат_25834.pdf",
+          "id": "24"
+        }
+      ],
+      "count": 1,
+      "in_documents": 1
+    },
+    {
+      "name": "Алайтыр заладный",
+      "lat_dms": "49°04'",
+      "lon_dms": "74°21'",
+      "lat_decimal": 49.066667,
+      "lon_decimal": 74.35,
+      "occurrences": [
+        {
+          "report_id": "25834",
+          "source_file": "каталог_координат_25834.pdf",
+          "id": "18"
+        }
+      ],
+      "count": 1,
+      "in_documents": 1
+    },
+    {
+      "name": "Узунагац",
+      "lat_dms": "48°31'",
+      "lon_dms": "74°21'",
+      "lat_decimal": 48.516667,
+      "lon_decimal": 74.35,
+      "occurrences": [
+        {
+          "report_id": "25834",
+          "source_file": "каталог_координат_25834.pdf",
+          "id": "28"
+        }
+      ],
+      "count": 1,
+      "in_documents": 1
+    },
+    {
+      "name": "Участок Актобе",
+      "lat_dms": "48°56'",
+      "lon_dms": "74°04'",
+      "lat_decimal": 48.933333,
+      "lon_decimal": 74.066667,
+      "occurrences": [
+        {
+          "report_id": "25834",
+          "source_file": "каталог_координат_25834.pdf",
+          "id": "26"
+        }
+      ],
+      "count": 1,
+      "in_documents": 1
+    },
+    {
+      "name": "Участок Кварцевый",
+      "lat_dms": "47°50'",
+      "lon_dms": "71°46'",
+      "lat_decimal": 47.833333,
+      "lon_decimal": 71.766667,
+      "occurrences": [
+        {
+          "report_id": "25834",
+          "source_file": "каталог_координат_25834.pdf",
+          "id": "0"
+        }
+      ],
+      "count": 1,
+      "in_documents": 1
+    }
+  ]
+}

@@ -16,6 +16,7 @@ main.py — точка входа пайплайна Track 1.
 import argparse
 import json
 import os
+import re
 import sys
 import traceback
 from datetime import datetime
@@ -96,6 +97,26 @@ def to_markdown(result):
     return "\n".join(out)
 
 
+# имена сводных артефактов — это НЕ документы корпуса, пропускаем их при обходе
+_AGGREGATE_JSON = {"summary.json", "sites.json"}
+
+
+def _iter_documents(output_dir):
+    """
+    Идёт по JSON-результатам документов в output_dir (пропуская сводные артефакты
+    и лог ошибок) и отдаёт (имя_файла, данные). Один источник правды для всех
+    корпусных сводок (geojson / summary / sites), читающих готовые JSON с диска.
+    """
+    for fn in sorted(os.listdir(output_dir)):
+        if not fn.endswith(".json") or fn.startswith("_") or fn in _AGGREGATE_JSON:
+            continue
+        try:
+            with open(os.path.join(output_dir, fn), encoding="utf-8") as fh:
+                yield fn, json.load(fh)
+        except Exception:
+            continue
+
+
 def build_geojson(output_dir):
     """
     Собирает все валидные координаты из всех JSON-результатов в один
@@ -103,14 +124,7 @@ def build_geojson(output_dir):
     (ранее обработанные) файлы. Открывается на geojson.io.
     """
     features = []
-    for fn in sorted(os.listdir(output_dir)):
-        if not fn.endswith(".json") or fn.startswith("_") or fn == "summary.json":
-            continue
-        try:
-            with open(os.path.join(output_dir, fn), encoding="utf-8") as fh:
-                data = json.load(fh)
-        except Exception:
-            continue
+    for _fn, data in _iter_documents(output_dir):
         for c in data.get("coordinates", []):
             lat, lon = c.get("lat_decimal"), c.get("lon_decimal")
             if not c.get("valid") or lat is None or lon is None:
@@ -144,14 +158,7 @@ def build_summary(output_dir):
     report_ids = []
     total_valid_coords = 0
     mineral_doc_counts = {}
-    for fn in sorted(os.listdir(output_dir)):
-        if not fn.endswith(".json") or fn.startswith("_") or fn == "summary.json":
-            continue
-        try:
-            with open(os.path.join(output_dir, fn), encoding="utf-8") as fh:
-                data = json.load(fh)
-        except Exception:
-            continue
+    for _fn, data in _iter_documents(output_dir):
         docs += 1
         if data.get("ocr", {}).get("needs_review"):
             needs_review += 1
@@ -193,6 +200,125 @@ def to_summary_markdown(summary):
         out += [f"| {m} | {n} |" for m, n in summary["minerals"].items()]
     else:
         out.append("_не найдено_")
+    out.append("")
+    return "\n".join(out)
+
+
+def _norm_site_name(name):
+    """
+    Нормализует название участка для сравнения: нижний регистр, без пробелов,
+    точек и дефисов. Тогда 'Ю.Жуманай', 'Ю. Жуманай' и 'ю.жуманай' дают один ключ.
+    """
+    return re.sub(r"[\s.\-]", "", (name or "").lower())
+
+
+def build_sites(output_dir):
+    """
+    Дедупликация участков между документами. Один и тот же участок (одинаковое
+    нормализованное название + те же координаты с точностью до минуты) нередко
+    встречается в нескольких отчётах — здесь они схлопываются в одну запись со
+    списком источников (report_id / файл / номер строки в каталоге).
+
+    Дополнительно ловим КОНФЛИКТЫ: одно название с разными координатами. Это
+    типичный дефект (ошибка OCR или расхождение источников) и ценный сигнал для
+    ручной проверки — поэтому не прячем его, а выносим отдельным списком.
+
+    Читает готовые JSON с диска, поэтому работает и после resume-прогона.
+    """
+    by_key = {}        # (norm_name, lat_dms, lon_dms) -> запись участка
+    name_to_keys = {}  # norm_name -> множество ключей (для поиска конфликтов)
+
+    for _fn, data in _iter_documents(output_dir):
+        report_id = data.get("report_id")
+        source_file = data.get("source_file")
+        for c in data.get("coordinates", []):
+            if not c.get("valid"):
+                continue
+            norm = _norm_site_name(c.get("name", ""))
+            if not norm:
+                continue
+            key = (norm, c.get("lat_dms"), c.get("lon_dms"))
+            site = by_key.get(key)
+            if site is None:
+                site = by_key[key] = {
+                    "name": c.get("name", ""),
+                    "lat_dms": c.get("lat_dms"),
+                    "lon_dms": c.get("lon_dms"),
+                    "lat_decimal": c.get("lat_decimal"),
+                    "lon_decimal": c.get("lon_decimal"),
+                    "occurrences": [],
+                }
+                name_to_keys.setdefault(norm, set()).add(key)
+            site["occurrences"].append({
+                "report_id": report_id,
+                "source_file": source_file,
+                "id": c.get("id"),
+            })
+
+    sites = []
+    for site in by_key.values():
+        distinct_docs = {o["source_file"] for o in site["occurrences"]}
+        site["count"] = len(site["occurrences"])
+        site["in_documents"] = len(distinct_docs)  # в скольких РАЗНЫХ документах
+        sites.append(site)
+    # сначала самые «общие» участки: в большем числе документов, затем по упоминаниям
+    sites.sort(key=lambda s: (-s["in_documents"], -s["count"], s["name"]))
+
+    # конфликты: одно нормализованное имя -> несколько разных координат
+    conflicts = []
+    for norm, keys in name_to_keys.items():
+        if len(keys) > 1:
+            variants = [by_key[k] for k in keys]
+            conflicts.append({
+                "name": variants[0]["name"],
+                "variants": [
+                    {
+                        "lat_dms": v["lat_dms"],
+                        "lon_dms": v["lon_dms"],
+                        "in_documents": v["in_documents"],
+                    }
+                    for v in variants
+                ],
+            })
+    conflicts.sort(key=lambda c: c["name"])
+
+    return {
+        "unique_sites": len(sites),
+        "total_mentions": sum(s["count"] for s in sites),
+        "cross_document_sites": sum(1 for s in sites if s["in_documents"] > 1),
+        "name_conflicts": conflicts,
+        "sites": sites,
+    }
+
+
+def to_sites_markdown(sites_data):
+    """Человекочитаемый список уникальных участков + конфликты."""
+    out = [
+        "# Участки (дедупликация между документами)",
+        "",
+        f"- Уникальных участков: **{sites_data['unique_sites']}**",
+        f"- Всего упоминаний: **{sites_data['total_mentions']}**",
+        f"- Встречаются более чем в одном документе: **{sites_data['cross_document_sites']}**",
+        "",
+        "## Уникальные участки",
+    ]
+    if sites_data["sites"]:
+        out += ["", "| Участок | Широта | Долгота | Документов | Упоминаний |",
+                    "|---------|--------|---------|-----------|-----------|"]
+        for s in sites_data["sites"]:
+            out.append(
+                f"| {s['name']} | {s['lat_dms']} | {s['lon_dms']} | "
+                f"{s['in_documents']} | {s['count']} |"
+            )
+    else:
+        out.append("_нет валидных координат_")
+    if sites_data["name_conflicts"]:
+        out += ["", "## ⚠️ Конфликты названий (одно имя — разные координаты)", ""]
+        for c in sites_data["name_conflicts"]:
+            variants = "; ".join(
+                f"{v['lat_dms']} {v['lon_dms']}" for v in c["variants"]
+            )
+            out.append(f"- **{c['name']}**: {variants}")
     out.append("")
     return "\n".join(out)
 
@@ -283,11 +409,23 @@ def main():
     with open(os.path.join(args.output, "summary.md"), "w", encoding="utf-8") as fh:
         fh.write(to_summary_markdown(summary))
 
+    # дедупликация участков между документами (+ конфликты названий)
+    sites_data = build_sites(args.output)
+    with open(os.path.join(args.output, "sites.json"), "w", encoding="utf-8") as fh:
+        json.dump(sites_data, fh, ensure_ascii=False, indent=2)
+    with open(os.path.join(args.output, "sites.md"), "w", encoding="utf-8") as fh:
+        fh.write(to_sites_markdown(sites_data))
+
     print("-" * 50)
     print(f"Сводный GeoJSON: {geo_path} (точек: {len(geojson['features'])})")
     print(
         f"Сводка по корпусу: {os.path.join(args.output, 'summary.json')} "
         f"(документов: {summary['documents']}, на проверке: {summary['needs_review']})"
+    )
+    print(
+        f"Участки (дедуп): {os.path.join(args.output, 'sites.json')} "
+        f"(уникальных: {sites_data['unique_sites']}, "
+        f"в неск. документах: {sites_data['cross_document_sites']})"
     )
     print(
         f"Готово. Успешно: {ok}/{len(pdfs)}. "
