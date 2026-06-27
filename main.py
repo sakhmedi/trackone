@@ -26,15 +26,32 @@ from parse_catalog import parse_catalog
 from entities import extract_entities, extract_report_id
 
 
+# ниже этого порога средней уверенности OCR документ помечается на ручную проверку
+CONFIDENCE_THRESHOLD = 60.0
+
+
 def process_one(pdf_path):
     """Обрабатывает один PDF, возвращает словарь с результатами."""
     filename = os.path.basename(pdf_path)
-    text = pdf_to_text(pdf_path)
+    text, ocr_meta = pdf_to_text(pdf_path)
+
+    # честно отмечаем документы, которым нельзя доверять «как есть»:
+    # низкая уверенность OCR или были сбойные страницы.
+    needs_review = (
+        ocr_meta["mean_confidence"] < CONFIDENCE_THRESHOLD
+        or ocr_meta["failed_pages"] > 0
+    )
 
     return {
         "source_file": filename,
         "report_id": extract_report_id(filename, text),
         "processed_at": datetime.now().isoformat(timespec="seconds"),
+        "ocr": {
+            "pages": ocr_meta["pages"],
+            "failed_pages": ocr_meta["failed_pages"],
+            "mean_confidence": ocr_meta["mean_confidence"],
+            "needs_review": needs_review,
+        },
         "coordinates": parse_catalog(text),
         "entities": extract_entities(text),
         "raw_text": text,
@@ -48,10 +65,18 @@ def to_markdown(result):
     valid = [c for c in coords if c.get("valid")]
     invalid = [c for c in coords if not c.get("valid")]
 
+    ocr = result.get("ocr", {})
     out = [
         f"# Отчёт {result.get('report_id') or '—'} — {result['source_file']}",
         "",
         f"*Обработано: {result['processed_at']}*",
+        f"*OCR: уверенность {ocr.get('mean_confidence', '—')}%, "
+        f"страниц {ocr.get('pages', '—')}, сбойных {ocr.get('failed_pages', 0)}*",
+    ]
+    if ocr.get("needs_review"):
+        out += ["", "> ⚠️ **Требует ручной проверки** — низкая уверенность OCR "
+                    "или были нечитаемые страницы."]
+    out += [
         "",
         "## Минералы / металлы",
         ", ".join(ents["minerals"]) if ents["minerals"] else "_не найдено_",
@@ -158,7 +183,9 @@ def main():
             with open(md_path, "w", encoding="utf-8") as fh:
                 fh.write(to_markdown(result))
             n_coords = len(result["coordinates"])
-            print(f"ок (координат: {n_coords})")
+            flag = " [ПРОВЕРКА]" if result["ocr"]["needs_review"] else ""
+            print(f"ок (координат: {n_coords}, "
+                  f"уверенность OCR: {result['ocr']['mean_confidence']}%){flag}")
             ok += 1
         except Exception as e:
             # ничего не теряем молча: пишем в лог и идём дальше

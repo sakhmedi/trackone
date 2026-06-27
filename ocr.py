@@ -59,14 +59,42 @@ def _auto_rotate(image):
     return image
 
 
-def _ocr_pages(pages, lang, collected, errors):
-    """OCR списка страниц с изоляцией ошибок; дописывает в collected/errors."""
+def _ocr_page(image, lang):
+    """
+    OCR одной страницы за ОДИН вызов image_to_data: из него собираем и текст
+    (с сохранением строк — нужно для парсинга таблиц), и уверенность движка.
+    Возвращает (text, список_уверенностей_слов).
+    """
+    data = pytesseract.image_to_data(
+        image, lang=lang, config="--psm 6",
+        output_type=pytesseract.Output.DICT,
+    )
+    lines = {}
+    confs = []
+    for i, word in enumerate(data["text"]):
+        if not word.strip():
+            continue
+        key = (data["block_num"][i], data["par_num"][i], data["line_num"][i])
+        lines.setdefault(key, []).append((data["word_num"][i], word))
+        try:
+            c = float(data["conf"][i])
+            if c >= 0:                 # -1 = служебные элементы, не текст
+                confs.append(c)
+        except (ValueError, TypeError):
+            pass
+    text = "\n".join(
+        " ".join(w for _, w in sorted(words)) for _, words in sorted(lines.items())
+    )
+    return text, confs
+
+
+def _ocr_pages(pages, lang, collected, confs, errors):
+    """OCR списка страниц с изоляцией ошибок; копит текст, уверенности, сбои."""
     for page in pages:
         try:
-            prepared = preprocess(_auto_rotate(page))
-            # --psm 6 = страница как единый блок текста, хорошо для таблиц
-            text = pytesseract.image_to_string(prepared, lang=lang, config="--psm 6")
+            text, page_confs = _ocr_page(preprocess(_auto_rotate(page)), lang)
             collected.append(text)
+            confs.extend(page_confs)
         except Exception as e:
             errors[0] += 1
             collected.append(f"[OCR-ОШИБКА СТРАНИЦЫ: {e}]")
@@ -74,17 +102,18 @@ def _ocr_pages(pages, lang, collected, errors):
 
 def pdf_to_text(pdf_path, lang="rus", dpi=300, batch_size=5):
     """
-    Распознаёт весь PDF и возвращает текст всех страниц.
+    Распознаёт весь PDF. Возвращает кортеж (text, meta), где meta содержит
+    среднюю уверенность OCR, число страниц и число сбойных страниц.
 
     lang="rus"      — русский языковой пакет Tesseract (обязателен для кириллицы).
     dpi=300         — разрешение рендера: выше = точнее, но медленнее.
     batch_size=5    — сколько страниц держать в памяти одновременно.
     """
     all_text = []
+    confs = []
     errors = [0]  # счётчик сбойных страниц (список — чтобы менять внутри хелпера)
 
     # Узнаём число страниц, чтобы рендерить батчами и не держать всё в RAM.
-    n_pages = None
     try:
         n_pages = pdfinfo_from_path(pdf_path)["Pages"]
     except Exception:
@@ -93,14 +122,19 @@ def pdf_to_text(pdf_path, lang="rus", dpi=300, batch_size=5):
     if n_pages is None:
         # не смогли узнать число страниц — рендерим целиком (запасной путь)
         pages = convert_from_path(pdf_path, dpi=dpi)
-        _ocr_pages(pages, lang, all_text, errors)
+        _ocr_pages(pages, lang, all_text, confs, errors)
     else:
         for start in range(1, n_pages + 1, batch_size):
             end = min(start + batch_size - 1, n_pages)
             pages = convert_from_path(
                 pdf_path, dpi=dpi, first_page=start, last_page=end
             )
-            _ocr_pages(pages, lang, all_text, errors)
+            _ocr_pages(pages, lang, all_text, confs, errors)
             del pages  # освобождаем память до следующего батча
 
-    return "\n".join(all_text)
+    meta = {
+        "pages": n_pages if n_pages is not None else len(all_text),
+        "failed_pages": errors[0],
+        "mean_confidence": round(sum(confs) / len(confs), 1) if confs else 0.0,
+    }
+    return "\n".join(all_text), meta

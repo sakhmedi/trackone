@@ -32,8 +32,10 @@ MINERAL_PATTERNS = {
 }
 _MINERAL_COMPILED = {name: re.compile(p) for name, p in MINERAL_PATTERNS.items()}
 
-# содержание металла вида "13,2 г-т", "23,9 г/т", "10 г т", "5 г.т"
-GRADE = re.compile(r"(\d+[,.]\d+|\d+)\s*г\s*[-/.]?\s*т")
+# содержание металла вида "13,2 г/т", "23,9 г-т", "10 г/т".
+# Требуем именно дробную черту (/ или -), а не точку: иначе "1973 г. тонн"
+# (где "г." = год) ложно матчилось бы как содержание. \b отсекает "г/тонну".
+GRADE = re.compile(r"(\d+(?:[,.]\d+)?)\s*г\s*[/\-]\s*т\b")
 
 # координаты в тексте: "48°03' с.ш.", "71°16' в.д."
 COORD_IN_TEXT = re.compile(
@@ -50,7 +52,13 @@ def extract_entities(text):
         name for name, rx in _MINERAL_COMPILED.items() if rx.search(low)
     )
 
-    grades = GRADE.findall(text)
+    # Отсекаем значения, выглядящие как календарный год (целое 1900–2099):
+    # "1973 г-т" — это год, а не содержание. Реальные содержания обычно с
+    # запятой ("1,6") или небольшие, поэтому фильтр их не трогает.
+    grades = [
+        g for g in GRADE.findall(text)
+        if not (g.isdigit() and 1900 <= int(g) <= 2099)
+    ]
 
     coords = []
     for d, mins, kind in COORD_IN_TEXT.findall(text):
