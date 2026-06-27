@@ -27,14 +27,32 @@
 
 ## Установка
 
+Нужны две системные зависимости: **Tesseract** (с русским языковым пакетом) и
+**poppler** (его использует pdf2image для рендера PDF).
+
 ```bash
-# системная зависимость — Tesseract с русским языком
 # Ubuntu/Debian:
 sudo apt-get install tesseract-ocr tesseract-ocr-rus poppler-utils
+
 # macOS:
 brew install tesseract tesseract-lang poppler
+```
 
-# python-зависимости
+**Windows:**
+1. Установить Tesseract (сборка UB Mannheim:
+   https://github.com/UB-Mannheim/tesseract/wiki), при установке отметить
+   русский язык (Russian).
+2. Скачать poppler для Windows (https://github.com/oschwartz10612/poppler-windows/releases)
+   и добавить его папку `bin` в `PATH`.
+3. Если `tesseract.exe` не в `PATH`, указать путь к нему через переменную
+   окружения перед запуском:
+   ```powershell
+   $env:TESSERACT_CMD = "C:\Program Files\Tesseract-OCR\tesseract.exe"
+   ```
+
+Затем python-зависимости (для всех ОС):
+
+```bash
 pip install -r requirements.txt
 ```
 
@@ -42,23 +60,25 @@ pip install -r requirements.txt
 
 ```bash
 # положи PDF-файлы в папку input/, затем:
-python src/main.py
+python main.py
 
 # или укажи свои папки:
-python src/main.py --input путь/к/сканам --output путь/к/результату
+python main.py --input путь/к/сканам --output путь/к/результату
+
+# принудительно пересчитать уже обработанные файлы:
+python main.py --overwrite
 ```
 
 ## Структура проекта
 
 ```
-track1/
-├── input/              # сюда кладутся PDF-сканы
-├── output/             # сюда пишется JSON-результат + лог ошибок
-├── src/
-│   ├── main.py         # точка входа, обходит все файлы
-│   ├── ocr.py          # PDF → текст (Tesseract)
-│   ├── parse_catalog.py# парсинг таблиц-каталогов
-│   └── entities.py     # извлечение геологических сущностей
+trackone/
+├── input/              # сюда кладутся PDF-сканы (создай и положи файлы)
+├── output/             # сюда пишется JSON/Markdown-результат + лог ошибок (создаётся автоматически)
+├── main.py             # точка входа, обходит все файлы
+├── ocr.py              # PDF → текст (Tesseract, предобработка, авто-поворот)
+├── parse_catalog.py    # парсинг таблиц-каталогов координат
+├── entities.py         # извлечение геологических сущностей
 ├── requirements.txt
 └── README.md
 ```
@@ -71,13 +91,31 @@ track1/
 {
   "source_file": "каталог_координат_25834.pdf",
   "report_id": "25834",
-  "raw_text": "...распознанный текст...",
+  "processed_at": "2026-06-27T12:00:00",
   "coordinates": [
-    {"id": "1", "name": "Ю.Жуманай", "lat_dms": "48°03'", "lon_dms": "71°16'"}
+    {
+      "id": "1",
+      "name": "Ю.Жуманай",
+      "lat_dms": "48°03'",
+      "lon_dms": "71°16'",
+      "lat_decimal": 48.05,
+      "lon_decimal": 71.266667
+    }
   ],
   "entities": {
-    "minerals": ["золото", "серебро", "висмут"],
-    "locations": ["Агадырский район", "Тологай"]
-  }
+    "minerals": ["висмут", "золото", "серебро"],
+    "grades_g_per_t": ["23,9", "13,2"],
+    "coordinates_in_text": [
+      {"value": "48°03'", "type": "с.ш."},
+      {"value": "71°16'", "type": "в.д."}
+    ]
+  },
+  "raw_text": "...полный распознанный текст..."
 }
 ```
+
+Дополнительно создаются:
+- `<имя>.md` — человекочитаемое саммари документа (Markdown);
+- `output/all_coordinates.geojson` — все координаты из всех документов одним
+  файлом (открывается на [geojson.io](https://geojson.io));
+- `output/_errors.json` — лог файлов, которые не удалось обработать.
