@@ -1,7 +1,7 @@
 """
-conftest.py в корне репозитория.
+conftest.py at the repository root.
 
-Его наличие заставляет pytest добавить корень проекта в sys.path, поэтому
-тесты в tests/ могут импортировать модули пайплайна (parse_catalog, entities)
-независимо от того, как запущен pytest (`pytest`, `python -m pytest`, из IDE).
+Its presence makes pytest add the project root to sys.path, so the tests in
+tests/ can import the pipeline modules (parse_catalog, entities) regardless of
+how pytest is run (`pytest`, `python -m pytest`, or from an IDE).
 """

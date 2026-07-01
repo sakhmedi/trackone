@@ -1,14 +1,14 @@
 """
-main.py — точка входа пайплайна Track 1.
+main.py — entry point of the Track 1 pipeline.
 
-Обходит ВСЕ pdf в папке input/, обрабатывает каждый, пишет JSON в output/.
-Без хардкода имён файлов — масштабируется на любое число документов.
-Каждый файл в try/except — один сбой не роняет весь прогон.
+Walks ALL PDFs in the input/ folder, processes each, and writes JSON to output/.
+No hard-coded file names — scales to any number of documents.
+Each file is in a try/except — one failure does not bring down the whole run.
 
-Кроме JSON, на каждый документ пишется Markdown-саммари, а в конце прогона —
-сводный all_coordinates.geojson со всеми валидными координатами (для карты).
+Besides JSON, a Markdown summary is written for each document, and at the end of
+the run a combined all_coordinates.geojson with all valid coordinates (for a map).
 
-Запуск:
+Run:
     python main.py
     python main.py --input my_scans --output my_results
 """
@@ -21,23 +21,23 @@ import sys
 import traceback
 from datetime import datetime
 
-# импорт наших модулей
+# import our modules
 from ocr import pdf_to_text
 from parse_catalog import parse_catalog
 from entities import extract_entities, extract_report_id
 
 
-# ниже этого порога средней уверенности OCR документ помечается на ручную проверку
+# below this mean OCR confidence threshold, a document is flagged for manual review
 CONFIDENCE_THRESHOLD = 60.0
 
 
 def process_one(pdf_path):
-    """Обрабатывает один PDF, возвращает словарь с результатами."""
+    """Processes a single PDF, returns a dict of results."""
     filename = os.path.basename(pdf_path)
     text, ocr_meta = pdf_to_text(pdf_path)
 
-    # честно отмечаем документы, которым нельзя доверять «как есть»:
-    # низкая уверенность OCR или были сбойные страницы.
+    # honestly flag documents that cannot be trusted "as is":
+    # low OCR confidence or there were failed pages.
     needs_review = (
         ocr_meta["mean_confidence"] < CONFIDENCE_THRESHOLD
         or ocr_meta["failed_pages"] > 0
@@ -60,7 +60,7 @@ def process_one(pdf_path):
 
 
 def to_markdown(result):
-    """Человекочитаемое саммари документа в Markdown."""
+    """Human-readable summary of a document in Markdown."""
     ents = result["entities"]
     coords = result["coordinates"]
     valid = [c for c in coords if c.get("valid")]
@@ -97,15 +97,16 @@ def to_markdown(result):
     return "\n".join(out)
 
 
-# имена сводных артефактов — это НЕ документы корпуса, пропускаем их при обходе
+# names of aggregate artifacts — these are NOT corpus documents, skip them during traversal
 _AGGREGATE_JSON = {"summary.json", "sites.json"}
 
 
 def _iter_documents(output_dir):
     """
-    Идёт по JSON-результатам документов в output_dir (пропуская сводные артефакты
-    и лог ошибок) и отдаёт (имя_файла, данные). Один источник правды для всех
-    корпусных сводок (geojson / summary / sites), читающих готовые JSON с диска.
+    Walks the per-document JSON results in output_dir (skipping aggregate
+    artifacts and the error log) and yields (file_name, data). A single source of
+    truth for all corpus summaries (geojson / summary / sites) that read
+    finished JSON from disk.
     """
     for fn in sorted(os.listdir(output_dir)):
         if not fn.endswith(".json") or fn.startswith("_") or fn in _AGGREGATE_JSON:
@@ -119,9 +120,9 @@ def _iter_documents(output_dir):
 
 def build_geojson(output_dir):
     """
-    Собирает все валидные координаты из всех JSON-результатов в один
-    FeatureCollection. Читает с диска, поэтому учитывает и пропущенные
-    (ранее обработанные) файлы. Открывается на geojson.io.
+    Collects all valid coordinates from all JSON results into a single
+    FeatureCollection. Reads from disk, so it also accounts for skipped
+    (previously processed) files. Opens on geojson.io.
     """
     features = []
     for _fn, data in _iter_documents(output_dir):
@@ -131,7 +132,7 @@ def build_geojson(output_dir):
                 continue
             features.append({
                 "type": "Feature",
-                # ВНИМАНИЕ: в GeoJSON порядок [долгота, широта]
+                # NOTE: GeoJSON order is [longitude, latitude]
                 "geometry": {"type": "Point", "coordinates": [lon, lat]},
                 "properties": {
                     "id": c.get("id"),
@@ -145,13 +146,14 @@ def build_geojson(output_dir):
 
 def build_summary(output_dir):
     """
-    Сводка по всему обработанному корпусу: сколько документов, сколько помечено на
-    ручную проверку, какие минералы встречаются (и в скольких документах), сколько
-    валидных координат собрано. Как и build_geojson, читает готовые JSON с диска —
-    поэтому отражает и ранее обработанные (пропущенные при resume) файлы.
+    Summary over the entire processed corpus: how many documents, how many are
+    flagged for manual review, which minerals occur (and in how many documents),
+    how many valid coordinates were collected. Like build_geojson, it reads
+    finished JSON from disk — so it also reflects previously processed files
+    (skipped on resume).
 
-    Это «карта» спасённых данных по всему архиву: одним взглядом видно объём и
-    качество того, что удалось извлечь из пачки сканов.
+    This is a "map" of the rescued data across the whole archive: at a glance you
+    see the volume and quality of what was extracted from the batch of scans.
     """
     docs = 0
     needs_review = 0
@@ -167,7 +169,7 @@ def build_summary(output_dir):
         total_valid_coords += sum(
             1 for c in data.get("coordinates", []) if c.get("valid")
         )
-        # минерал считаем один раз на документ (в скольких документах встречается)
+        # count a mineral once per document (in how many documents it occurs)
         for m in set(data.get("entities", {}).get("minerals", [])):
             mineral_doc_counts[m] = mineral_doc_counts.get(m, 0) + 1
 
@@ -176,7 +178,7 @@ def build_summary(output_dir):
         "needs_review": needs_review,
         "report_ids": sorted(set(report_ids)),
         "total_valid_coordinates": total_valid_coords,
-        # сортируем по частоте (убывание), затем по имени
+        # sort by frequency (descending), then by name
         "minerals": dict(
             sorted(mineral_doc_counts.items(), key=lambda kv: (-kv[1], kv[0]))
         ),
@@ -184,7 +186,7 @@ def build_summary(output_dir):
 
 
 def to_summary_markdown(summary):
-    """Человекочитаемая сводка по корпусу в Markdown."""
+    """Human-readable corpus summary in Markdown."""
     out = [
         "# Сводка по корпусу",
         "",
@@ -206,27 +208,28 @@ def to_summary_markdown(summary):
 
 def _norm_site_name(name):
     """
-    Нормализует название участка для сравнения: нижний регистр, без пробелов,
-    точек и дефисов. Тогда 'Ю.Жуманай', 'Ю. Жуманай' и 'ю.жуманай' дают один ключ.
+    Normalizes a site name for comparison: lowercase, without spaces, dots, and
+    hyphens. Then 'Ю.Жуманай', 'Ю. Жуманай' and 'ю.жуманай' produce one key.
     """
     return re.sub(r"[\s.\-]", "", (name or "").lower())
 
 
 def build_sites(output_dir):
     """
-    Дедупликация участков между документами. Один и тот же участок (одинаковое
-    нормализованное название + те же координаты с точностью до минуты) нередко
-    встречается в нескольких отчётах — здесь они схлопываются в одну запись со
-    списком источников (report_id / файл / номер строки в каталоге).
+    Cross-document site deduplication. The same site (identical normalized name +
+    the same coordinates to the minute) often appears in several reports — here
+    they are collapsed into a single record with a list of sources
+    (report_id / file / catalog row number).
 
-    Дополнительно ловим КОНФЛИКТЫ: одно название с разными координатами. Это
-    типичный дефект (ошибка OCR или расхождение источников) и ценный сигнал для
-    ручной проверки — поэтому не прячем его, а выносим отдельным списком.
+    Additionally, we catch CONFLICTS: one name with different coordinates. This is
+    a typical defect (an OCR error or a discrepancy between sources) and a
+    valuable signal for manual review — so we do not hide it but surface it as a
+    separate list.
 
-    Читает готовые JSON с диска, поэтому работает и после resume-прогона.
+    Reads finished JSON from disk, so it also works after a resume run.
     """
-    by_key = {}        # (norm_name, lat_dms, lon_dms) -> запись участка
-    name_to_keys = {}  # norm_name -> множество ключей (для поиска конфликтов)
+    by_key = {}        # (norm_name, lat_dms, lon_dms) -> site record
+    name_to_keys = {}  # norm_name -> set of keys (for finding conflicts)
 
     for _fn, data in _iter_documents(output_dir):
         report_id = data.get("report_id")
@@ -259,12 +262,12 @@ def build_sites(output_dir):
     for site in by_key.values():
         distinct_docs = {o["source_file"] for o in site["occurrences"]}
         site["count"] = len(site["occurrences"])
-        site["in_documents"] = len(distinct_docs)  # в скольких РАЗНЫХ документах
+        site["in_documents"] = len(distinct_docs)  # in how many DISTINCT documents
         sites.append(site)
-    # сначала самые «общие» участки: в большем числе документов, затем по упоминаниям
+    # most "common" sites first: in more documents, then by number of mentions
     sites.sort(key=lambda s: (-s["in_documents"], -s["count"], s["name"]))
 
-    # конфликты: одно нормализованное имя -> несколько разных координат
+    # conflicts: one normalized name -> several different coordinates
     conflicts = []
     for norm, keys in name_to_keys.items():
         if len(keys) > 1:
@@ -292,7 +295,7 @@ def build_sites(output_dir):
 
 
 def to_sites_markdown(sites_data):
-    """Человекочитаемый список уникальных участков + конфликты."""
+    """Human-readable list of unique sites + conflicts."""
     out = [
         "# Участки (дедупликация между документами)",
         "",
@@ -324,8 +327,8 @@ def to_sites_markdown(sites_data):
 
 
 def main():
-    # пути задаются аргументами, по умолчанию — относительные папки.
-    # это и есть "без хардкода": судьи укажут свои папки и всё заработает.
+    # paths are set by arguments, defaulting to relative folders.
+    # this is the "no hard-coding": the judges point to their own folders and it all works.
     parser = argparse.ArgumentParser(description="Track 1: OCR геологических отчётов")
     parser.add_argument("--input", default="input", help="папка с PDF")
     parser.add_argument("--output", default="output", help="папка для результатов")
@@ -338,7 +341,7 @@ def main():
 
     os.makedirs(args.output, exist_ok=True)
 
-    # находим все PDF в папке (рекурсивно)
+    # find all PDFs in the folder (recursively)
     pdfs = []
     for root, _, files in os.walk(args.input):
         for f in files:
@@ -360,8 +363,8 @@ def main():
         out_name = os.path.splitext(name)[0] + ".json"
         out_path = os.path.join(args.output, out_name)
 
-        # resume: если JSON уже есть и не пустой — пропускаем (если не --overwrite).
-        # так прогон на 10 000 файлов можно перезапустить после сбоя.
+        # resume: if the JSON already exists and is non-empty, skip it (unless --overwrite).
+        # this way a run over 10,000 files can be restarted after a failure.
         if not args.overwrite and os.path.exists(out_path) and os.path.getsize(out_path) > 0:
             print(f"[{i}/{len(pdfs)}] {name} ... пропуск (уже обработан)")
             skipped += 1
@@ -372,7 +375,7 @@ def main():
             result = process_one(pdf_path)
             with open(out_path, "w", encoding="utf-8") as fh:
                 json.dump(result, fh, ensure_ascii=False, indent=2)
-            # человекочитаемое саммари рядом с JSON
+            # human-readable summary alongside the JSON
             md_path = os.path.splitext(out_path)[0] + ".md"
             with open(md_path, "w", encoding="utf-8") as fh:
                 fh.write(to_markdown(result))
@@ -382,7 +385,7 @@ def main():
                   f"уверенность OCR: {result['ocr']['mean_confidence']}%){flag}")
             ok += 1
         except Exception as e:
-            # ничего не теряем молча: пишем в лог и идём дальше
+            # nothing is lost silently: write to the log and move on
             print("ОШИБКА")
             error_log.append({
                 "file": name,
@@ -390,26 +393,26 @@ def main():
                 "trace": traceback.format_exc(),
             })
 
-    # сохраняем лог ошибок — это требование критериев (надёжность)
+    # save the error log — this is a criteria requirement (reliability)
     if error_log:
         log_path = os.path.join(args.output, "_errors.json")
         with open(log_path, "w", encoding="utf-8") as fh:
             json.dump(error_log, fh, ensure_ascii=False, indent=2)
 
-    # сводный GeoJSON со всеми валидными координатами (для карты)
+    # combined GeoJSON with all valid coordinates (for a map)
     geojson = build_geojson(args.output)
     geo_path = os.path.join(args.output, "all_coordinates.geojson")
     with open(geo_path, "w", encoding="utf-8") as fh:
         json.dump(geojson, fh, ensure_ascii=False, indent=2)
 
-    # сводка по всему корпусу (JSON + человекочитаемый Markdown)
+    # summary over the whole corpus (JSON + human-readable Markdown)
     summary = build_summary(args.output)
     with open(os.path.join(args.output, "summary.json"), "w", encoding="utf-8") as fh:
         json.dump(summary, fh, ensure_ascii=False, indent=2)
     with open(os.path.join(args.output, "summary.md"), "w", encoding="utf-8") as fh:
         fh.write(to_summary_markdown(summary))
 
-    # дедупликация участков между документами (+ конфликты названий)
+    # cross-document site deduplication (+ name conflicts)
     sites_data = build_sites(args.output)
     with open(os.path.join(args.output, "sites.json"), "w", encoding="utf-8") as fh:
         json.dump(sites_data, fh, ensure_ascii=False, indent=2)

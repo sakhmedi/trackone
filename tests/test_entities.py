@@ -1,14 +1,14 @@
 """
-Тесты извлечения сущностей и номера отчёта.
+Tests for entity extraction and the report number.
 
-Чистый текст, без OCR-зависимостей:  python -m pytest tests/
+Plain text, no OCR dependencies:  python -m pytest tests/
 """
 
 from entities import extract_entities, extract_report_id
 
 
 def test_minerals_found_by_stem_across_cases():
-    # русский склоняет минералы по падежам — ищем по основе слова
+    # Russian inflects minerals by grammatical case — we search by word stem
     text = "В пробах установлено золота и серебром, а также медный колчедан."
     minerals = extract_entities(text)["minerals"]
     assert "золото" in minerals
@@ -20,7 +20,7 @@ def test_grades_extracted_but_year_filtered():
     text = "Содержание золота 13,2 г/т. Отчёт составлен в 1973 г-т назад."
     grades = extract_entities(text)["grades_g_per_t"]
     assert "13,2" in grades
-    # "1973" выглядит как год -> не должно попасть в содержания
+    # "1973" looks like a year -> must not end up in the grades
     assert "1973" not in grades
 
 
@@ -34,7 +34,7 @@ def test_prose_coordinates_validated():
 
 
 def test_prose_coordinate_out_of_range_marked_invalid():
-    # 99° широты невозможны -> valid=false, координата не теряется
+    # 99° of latitude is impossible -> valid=false, the coordinate is not lost
     text = "Ошибочно указано 99°03' с.ш."
     coords = extract_entities(text)["coordinates_in_text"]
     assert len(coords) == 1
@@ -43,7 +43,7 @@ def test_prose_coordinate_out_of_range_marked_invalid():
 
 
 def test_report_id_prefers_number_over_year_in_filename():
-    # имя с годом впереди не должно отдавать год вместо номера отчёта
+    # a file name with a year in front must not return the year instead of the report number
     assert extract_report_id("2024_otchet_25834.pdf", "") == "25834"
 
 
@@ -52,5 +52,5 @@ def test_report_id_from_context_in_text():
 
 
 def test_report_id_fallback_when_no_context():
-    # нет контекста-слова и номера в имени -> фоллбэк на любое 4-6-значное число
+    # no context word and no number in the name -> fallback to any 4-6-digit number
     assert extract_report_id("scan.pdf", "на листах описи 480015 приведены данные") == "480015"

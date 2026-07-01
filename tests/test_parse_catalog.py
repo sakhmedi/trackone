@@ -1,14 +1,14 @@
 """
-Тесты парсера каталога координат.
+Tests for the coordinate catalog parser.
 
-Не требуют Tesseract/Poppler — работают на синтетическом «OCR-тексте»,
-поэтому судьи могут запустить их без OCR-окружения:  python -m pytest tests/
+No Tesseract/Poppler required — they run on synthetic "OCR text", so the judges
+can run them without an OCR environment:  python -m pytest tests/
 """
 
 from parse_catalog import parse_catalog, dms_to_decimal, _clean_name, MIN_CATALOG_ROWS
 
 
-# Чистый каталог: 5 строк, формат [номер] [название] [широта гр мин] [долгота гр мин]
+# Clean catalog: 5 rows, format [number] [name] [lat deg min] [lon deg min]
 CLEAN = """\
 1. Ю.Жуманай      48 03      71 16
 2  Жабай          48 07      71 20
@@ -17,8 +17,8 @@ CLEAN = """\
 5  Тасты          48 19      71 32
 """
 
-# Тот же каталог с типичными OCR-подменами цифр на похожие буквы:
-# O→0, l→1, З→3, В→8, S→5, и мусор в начале строки.
+# The same catalog with typical OCR substitutions of digits by similar letters:
+# O→0, l→1, З→3, В→8, S→5, and junk at the start of the line.
 NOISY = """\
 ; 1. Ю.Жуманай     4O O3      7l 16
 | 2  Жабай         48 O7      71 2О
@@ -44,16 +44,16 @@ def test_decimal_conversion_is_correct():
 
 def test_ocr_letter_substitutions_are_normalised():
     rows = parse_catalog(NOISY)
-    # все 5 строк должны распознаться несмотря на буквы вместо цифр
+    # all 5 rows should be recognized despite letters standing in for digits
     assert len(rows) == 5
     assert all(r["valid"] for r in rows)
-    # '4O O3' -> 48? нет: 4O=40, O3=03 -> 40.05
+    # '4O O3' -> 48? no: 4O=40, O3=03 -> 40.05
     assert rows[0]["lat_decimal"] == dms_to_decimal(40, 3)
 
 
 def test_out_of_range_marked_invalid_not_dropped():
-    # широта 99° вне диапазона: строка должна остаться, но valid=false,
-    # а сырые координаты сохранены для ручной проверки.
+    # latitude 99° is out of range: the row must remain, but valid=false,
+    # and the raw coordinates preserved for manual review.
     text = (
         CLEAN
         + "6  Бракованный   99 03      71 16\n"
@@ -67,13 +67,13 @@ def test_out_of_range_marked_invalid_not_dropped():
 
 
 def test_below_threshold_returns_empty():
-    # меньше MIN_CATALOG_ROWS валидных строк -> это не каталог, а шум прозы.
+    # fewer than MIN_CATALOG_ROWS valid rows -> this is not a catalog but prose noise.
     few = "\n".join(CLEAN.splitlines()[: MIN_CATALOG_ROWS - 1]) + "\n"
     assert parse_catalog(few) == []
 
 
 def test_noise_without_real_names_is_filtered():
-    # строки без осмысленного кириллического названия не должны проходить
+    # rows without a meaningful Cyrillic name must not pass
     junk = """\
 1. xx 12 34 56 78
 2. yy 12 34 56 78
@@ -84,7 +84,7 @@ def test_noise_without_real_names_is_filtered():
 
 
 def test_clean_name_keeps_digit_inside_but_trims_tail():
-    # цифра ВНУТРИ названия не должна обрезать имя (weakness #3),
-    # но хвостовой мусор от соседней колонки срезается.
+    # a digit INSIDE the name must not truncate the name (weakness #3),
+    # but trailing junk from the adjacent column is trimmed.
     assert _clean_name("Жум4най   48 03") == "Жум4най"
     assert _clean_name("Ю.Жуманай") == "Ю.Жуманай"

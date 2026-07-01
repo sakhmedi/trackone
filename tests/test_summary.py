@@ -1,7 +1,7 @@
 """
-Тесты сводки по корпусу (build_summary / to_summary_markdown).
+Tests for the corpus summary (build_summary / to_summary_markdown).
 
-Работают на готовых JSON-файлах, без OCR-окружения.
+They run on ready-made JSON files, without an OCR environment.
 """
 
 import json
@@ -10,7 +10,7 @@ from main import build_summary, to_summary_markdown
 
 
 def _write_doc(d, name, **kw):
-    """Кладёт минимальный документ-JSON в каталог d."""
+    """Writes a minimal document JSON into directory d."""
     doc = {
         "report_id": kw.get("report_id"),
         "ocr": {"needs_review": kw.get("needs_review", False)},
@@ -37,9 +37,9 @@ def test_summary_aggregates_corpus(tmp_path):
     s = build_summary(str(tmp_path))
     assert s["documents"] == 2
     assert s["needs_review"] == 1
-    assert s["report_ids"] == ["25834"]          # дедуп номеров отчётов
-    assert s["total_valid_coordinates"] == 3     # 2 + 1, невалидные не считаются
-    # золото в обоих документах -> 2; serebro/med -> по 1; сортировка по частоте
+    assert s["report_ids"] == ["25834"]          # report numbers deduplicated
+    assert s["total_valid_coordinates"] == 3     # 2 + 1, invalid ones are not counted
+    # золото in both documents -> 2; серебро/медь -> 1 each; sorted by frequency
     assert s["minerals"]["золото"] == 2
     assert s["minerals"]["серебро"] == 1
     assert list(s["minerals"])[0] == "золото"
@@ -48,7 +48,7 @@ def test_summary_aggregates_corpus(tmp_path):
 def test_summary_ignores_aggregate_and_error_files(tmp_path):
     _write_doc(tmp_path, "doc.json", report_id="1", minerals=["золото"],
                coordinates=[{"valid": True}])
-    # эти файлы не документы — их нельзя считать как документы корпуса
+    # these files are not documents — they must not be counted as corpus documents
     (tmp_path / "_errors.json").write_text("[]", encoding="utf-8")
     (tmp_path / "summary.json").write_text("{}", encoding="utf-8")
     (tmp_path / "all_coordinates.geojson").write_text("{}", encoding="utf-8")

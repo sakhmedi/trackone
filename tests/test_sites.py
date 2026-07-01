@@ -1,7 +1,7 @@
 """
-Тесты дедупликации участков между документами (build_sites).
+Tests for cross-document site deduplication (build_sites).
 
-Работают на готовых JSON-документах, без OCR-окружения.
+They run on ready-made JSON documents, without an OCR environment.
 """
 
 import json
@@ -29,10 +29,10 @@ def test_same_site_in_two_documents_is_deduped(tmp_path):
     _write(tmp_path, "b.json", "30001", "b.pdf", [dict(жабай, id="5")])
 
     s = build_sites(str(tmp_path))
-    # Жабай и Актобе -> 2 уникальных участка (Жабай не задублировался)
+    # Жабай and Актобе -> 2 unique sites (Жабай was not duplicated)
     assert s["unique_sites"] == 2
     assert s["total_mentions"] == 3  # Актобе×1 + Жабай×2
-    assert s["cross_document_sites"] == 1  # только Жабай в 2 документах
+    assert s["cross_document_sites"] == 1  # only Жабай is in 2 documents
 
     жабай_site = next(x for x in s["sites"] if x["name"] == "Жабай")
     assert жабай_site["in_documents"] == 2
@@ -42,7 +42,7 @@ def test_same_site_in_two_documents_is_deduped(tmp_path):
 
 
 def test_name_normalisation_merges_variants(tmp_path):
-    # одно и то же имя в разном написании + те же координаты -> один участок
+    # the same name in different spellings + the same coordinates -> one site
     _write(tmp_path, "a.json", "1", "a.pdf", [_coord("1", "Ю.Жуманай", "48°03'", "71°16'")])
     _write(tmp_path, "b.json", "2", "b.pdf", [_coord("1", "ю. жуманай", "48°03'", "71°16'")])
 
@@ -62,12 +62,12 @@ def test_invalid_coordinates_are_ignored(tmp_path):
 
 
 def test_name_conflict_is_flagged_not_merged(tmp_path):
-    # одно имя -> РАЗНЫЕ координаты в двух документах: это конфликт для проверки
+    # one name -> DIFFERENT coordinates in two documents: this is a conflict to review
     _write(tmp_path, "a.json", "1", "a.pdf", [_coord("1", "Тасты", "48°19'", "71°32'")])
     _write(tmp_path, "b.json", "2", "b.pdf", [_coord("1", "Тасты", "48°55'", "71°59'")])
 
     s = build_sites(str(tmp_path))
-    assert s["unique_sites"] == 2            # координаты разные -> не схлопнуты
+    assert s["unique_sites"] == 2            # different coordinates -> not collapsed
     assert len(s["name_conflicts"]) == 1
     conflict = s["name_conflicts"][0]
     assert conflict["name"] == "Тасты"
